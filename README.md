@@ -162,10 +162,16 @@ full normalized source chunk in PostgreSQL. Fixed-dimension models can leave
 2. Deploy this repository as a service.
 3. Add all values from `.env.example` in Railway Variables.
 4. Review `config.yaml` and set real recipients only when wanted.
-5. Deploy. The pre-deploy command applies Alembic migrations.
+5. Keep `NEWSLETTER_PRODUCTION_ENABLED=false` during setup and deploy. The pre-deploy command
+   applies Alembic migrations, while the start command only validates configuration.
+6. Perform acceptance checks, then set `NEWSLETTER_PRODUCTION_ENABLED=true` to activate live
+   scheduled runs. A live run creates Gmail drafts and removes labels only after successful draft
+   creation.
 
 `railway.json` schedules `30 14 * * 4`, which is Thursday 14:30 UTC / 20:00 IST. The process is
-one-shot and exits after all enabled profiles reach a terminal result.
+one-shot and exits after all enabled profiles reach a terminal result. The production safety gate
+defaults to disabled if its variable is missing or has any value other than the lowercase string
+`true`.
 
 ## Adding another topic
 

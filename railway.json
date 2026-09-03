@@ -6,7 +6,7 @@
   },
   "deploy": {
     "preDeployCommand": "alembic upgrade head",
-    "startCommand": "newsletter-agent run",
+    "startCommand": "/bin/sh -c 'if [ \"$NEWSLETTER_PRODUCTION_ENABLED\" = \"true\" ]; then exec newsletter-agent run; else echo \"Production execution is disabled; validating configuration only.\"; exec newsletter-agent validate-config; fi'",
     "cronSchedule": "30 14 * * 4",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 2
