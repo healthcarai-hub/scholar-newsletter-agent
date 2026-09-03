@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>{{ issue.subject }}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#eef2f6;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+      {{ issue.summary }}
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dfe5ec;">
+            <tr>
+              <td style="background:{{ issue.accent_color }};padding:32px 34px;color:#ffffff;">
+                <div style="font-size:12px;line-height:18px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;opacity:.88;">Research briefing</div>
+                <h1 style="margin:7px 0 6px;font-size:27px;line-height:34px;font-weight:700;color:#ffffff;">{{ issue.title }}</h1>
+                <div style="font-size:14px;line-height:21px;color:#ffffff;opacity:.9;">{{ issue.subtitle }}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 34px 0;background:#ffffff;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td style="font-size:13px;line-height:20px;color:#5b667a;">{{ issue_date }}</td>
+                    <td align="right" style="font-size:13px;line-height:20px;color:#5b667a;">{{ result_count }} result{% if result_count != 1 %}s{% endif %}</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 34px 4px;background:#ffffff;font-size:15px;line-height:24px;color:#263247;">
+                <p style="margin:0 0 12px;">{{ newsletter.greeting }}</p>
+                <p style="margin:0;">{{ newsletter.introduction }}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 34px 8px;background:#ffffff;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f5f8ff;border-left:4px solid {{ issue.accent_color }};border-radius:8px;">
+                  <tr>
+                    <td style="padding:18px 20px;">
+                      <div style="font-size:12px;line-height:18px;letter-spacing:.8px;text-transform:uppercase;font-weight:700;color:{{ issue.accent_color }};">This week at a glance</div>
+                      <div style="margin-top:6px;font-size:15px;line-height:24px;color:#263247;">{{ issue.summary }}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:12px 34px 4px;background:#ffffff;font-size:15px;line-height:24px;color:#263247;">
+                <p style="margin:0;font-weight:700;color:#172033;">{{ newsletter.results_lead }}</p>
+              </td>
+            </tr>
+            {% if sections %}
+            <tr>
+              <td style="padding:14px 34px 6px;background:#ffffff;">
+                <div style="font-size:12px;line-height:19px;color:#657086;">
+                  {% for section in sections %}<a href="#{{ section.anchor }}" style="color:{{ issue.accent_color }};text-decoration:none;font-weight:700;white-space:nowrap;">{{ section.name }}</a>{% if not loop.last %}<span style="color:#a5adba;"> &nbsp;•&nbsp; </span>{% endif %}{% endfor %}
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td style="padding:18px 34px 30px;background:#ffffff;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border:1px solid #dfe5ec;border-radius:10px;">
+                  <tr><td style="padding:24px;font-size:15px;line-height:24px;color:#4b5568;">No new alert results were available for this issue.</td></tr>
+                </table>
+              </td>
+            </tr>
+            {% endif %}
+
+            {% for section in sections %}
+            <tr>
+              <td id="{{ section.anchor }}" style="padding:24px 34px 4px;background:#ffffff;">
+                <h2 style="margin:0;padding:0 0 10px;border-bottom:2px solid {{ issue.accent_color }};font-size:19px;line-height:27px;color:#172033;">{{ section.name }}</h2>
+              </td>
+            </tr>
+            {% for entry in section["items"] %}
+            <tr>
+              <td style="padding:12px 34px 4px;background:#ffffff;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border:1px solid #e1e7ee;border-radius:10px;">
+                  <tr>
+                    <td style="padding:17px 18px;">
+                      <a href="{{ entry.enriched.canonical_url }}" style="color:{{ issue.accent_color }};font-size:16px;line-height:24px;font-weight:700;text-decoration:underline;">{{ entry.headline }}</a>
+                      <div style="margin-top:7px;font-size:14px;line-height:22px;color:#3f4a5d;">{{ entry.brief }}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+
+            <tr>
+              <td style="padding:26px 34px 22px;background:#ffffff;font-size:14px;line-height:22px;color:#334155;">
+                <p style="margin:0;">{{ newsletter.closing }}</p>
+              </td>
+            </tr>
+
+            {% if newsletter.signature %}
+            <tr>
+              <td style="padding:22px 34px;background:#f7f9fc;border-top:3px solid {{ issue.accent_color }};font-size:13px;line-height:20px;color:#475569;">
+                <div style="font-size:14px;font-weight:700;color:#172033;">{{ newsletter.signature.name }}</div>
+                {% if newsletter.signature.title %}<div style="margin-top:2px;">{{ newsletter.signature.title }}</div>{% endif %}
+                {% if newsletter.signature.email %}<div style="margin-top:2px;"><a href="mailto:{{ newsletter.signature.email }}" style="color:{{ issue.accent_color }};text-decoration:none;">{{ newsletter.signature.email }}</a></div>{% endif %}
+                {% if newsletter.signature.phone %}<div style="margin-top:2px;">{{ newsletter.signature.phone }}</div>{% endif %}
+                {% if newsletter.signature.disclaimer %}<div style="margin-top:10px;font-size:11px;line-height:17px;color:#8791a3;">{{ newsletter.signature.disclaimer }}</div>{% endif %}
+              </td>
+            </tr>
+            {% endif %}
+
+            <tr>
+              <td style="padding:16px 34px;background:#f7f9fc;border-top:1px solid #e1e7ee;">
+                <div style="font-size:12px;line-height:19px;color:#69758a;">{{ issue.footer }}</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

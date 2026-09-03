@@ -1,0 +1,27 @@
+{{ issue.title }}
+{{ issue_date }} · {{ result_count }} result{% if result_count != 1 %}s{% endif %}
+
+{{ newsletter.greeting }}
+
+{{ newsletter.introduction }}
+
+THIS WEEK AT A GLANCE
+{{ issue.summary }}
+
+{{ newsletter.results_lead }}
+
+{% if not sections %}No new alert results were available for this issue.
+{% endif %}{% for section in sections %}{{ section.name | upper }}
+{% for entry in section["items"] %}- {{ entry.headline }}
+  {{ entry.brief }}
+  {{ entry.enriched.canonical_url }}
+{% endfor %}{% endfor %}{{ newsletter.closing }}
+
+{% if newsletter.signature %}{{ newsletter.signature.name }}
+{% if newsletter.signature.title %}{{ newsletter.signature.title }}
+{% endif %}{% if newsletter.signature.email %}{{ newsletter.signature.email }}
+{% endif %}{% if newsletter.signature.phone %}{{ newsletter.signature.phone }}
+{% endif %}{% if newsletter.signature.disclaimer %}
+{{ newsletter.signature.disclaimer }}
+{% endif %}
+{% endif %}{{ issue.footer }}

@@ -1,0 +1,293 @@
+SCHOLAR NEWSLETTER AGENT — VERSION 2 ROADMAP
+Last updated: September 2, 2026
+
+Purpose
+-------
+Version 1 remains focused on dependable weekly ingestion, categorization, corpus
+storage, and Gmail draft creation for multiple configured topics. The items below
+are intentionally deferred so Version 1 can be deployed and evaluated without a
+larger platform rewrite.
+
+
+VERSION 1 BASELINE — CURRENTLY IMPLEMENTED
+==========================================
+
+Product behavior
+----------------
+- Runs as a terminating Python agent rather than a continuously running web server.
+- Supports multiple independently configured and enabled topic profiles under one
+  workspace and one Gmail account.
+- Produces one separate Gmail draft per successful profile; it never sends email.
+- Isolates profile failures so one topic does not prevent other topics from finishing.
+- Creates an empty draft when a profile has no new results, without empty category
+  sections.
+
+Configuration
+-------------
+- Uses validated YAML profiles with a configurable topic, Gmail label name,
+  categories, category guidance, prompts, subject/title templates, recipients,
+  greeting, introduction, closing, signature, footer, and branding.
+- Keeps {topic} and categories configurable for reuse across research areas.
+- Validates allowed prompt placeholders and rejects missing or unknown placeholders.
+- Rejects duplicate profile IDs, enabled Gmail labels, and category names.
+- Resolves Gmail label IDs dynamically from user-supplied label names; label IDs are
+  not stored in config.yaml.
+- Loads credentials and provider settings from environment variables rather than the
+  YAML configuration.
+
+Schedule and issue dates
+------------------------
+- Railway starts the agent every Thursday at 8:00 PM IST using the UTC cron schedule
+  30 14 * * 4.
+- Thursday at 8:00 PM IST is the ingestion cutoff and the durable issue-key date.
+- The reader-facing subject and newsletter show the following Friday's date.
+- Newsletter copy describes the issue as a Friday wrap-up.
+- Each normal run considers only messages in the configured rolling lookback window,
+  seven days by default; older labeled messages are ignored and left untouched.
+
+Gmail workflow
+--------------
+- Uses Gmail OAuth 2.0 and the gmail.modify scope.
+- Resolves each profile's configured label independently.
+- Provides a read-only check-gmail command for OAuth, label, and parser verification.
+- Parses Google Scholar alert HTML and plain-text fallbacks into typed research items.
+- Treats an unparseable labeled alert as a profile failure and leaves its label intact.
+- Creates or recovers a Gmail draft but contains no Gmail send endpoint.
+- Removes the configured label only from exactly the successfully processed source
+  messages, and only after the draft ID has been durably recorded.
+
+Enrichment and duplicate handling
+---------------------------------
+- Unwraps Google redirects and removes common tracking parameters from source URLs.
+- Fetches public landing-page HTML with redirect, network-safety, response-size,
+  timeout, global-concurrency, and per-domain-concurrency limits.
+- Extracts citation metadata, including title, authors, venue, publication date,
+  abstract, and DOI when available.
+- Falls back to the Scholar title and snippet when a page is blocked, unavailable, a
+  PDF, or otherwise unsuitable for enrichment.
+- Marks successful pages as available, removes confirmed HTTP 404/410 and soft-404
+  pages before categorization, and records link-health evidence in source metadata.
+- Retains bot-blocked, rate-limited, and temporarily unreachable links as unverified
+  so publisher access controls do not cause valid research to be discarded.
+- Clusters results before categorization using DOI, canonical URL, normalized title,
+  exact abstract/snippet content, and conservative high-confidence content similarity.
+- Handles differently titled or differently hosted copies, including cases where only
+  one copy exposes a DOI, when their substantive content matches.
+- Chooses the richest cluster representative and prevents every discarded duplicate
+  from consuming an LLM categorization request.
+- Refuses to merge short generic descriptions without stronger identity evidence.
+
+LLM processing
+--------------
+- Calls configurable OpenAI-compatible chat and embedding endpoints.
+- Inserts each profile's topic and ordered category definitions into its prompts.
+- Requests schema-validated categorization, linked headline, and grounded brief.
+- Generates the category and item summary together in one request per result to
+  reduce request count and token usage.
+- Generates a grounded three-to-four-sentence issue synthesis.
+- Treats source text as untrusted data and retries malformed model responses.
+- Supports bounded concurrency, request pacing, Retry-After handling, and capped
+  retries for rate-limited providers such as Groq's free tier.
+- Uses Additional Research as the internal fallback category and renders it only
+  when it contains results.
+
+Newsletter rendering
+--------------------
+- Produces a 640-pixel, table-based HTML email with inline styles for broad email
+  client compatibility, plus a plain-text alternative.
+- Includes the Friday issue date, result count, greeting, introduction, overall
+  synthesis, non-empty category navigation, categorized linked paper cards, closing,
+  signature, disclaimer, and footer.
+- Omits empty categories from navigation, HTML, and plain text.
+- Orders populated categories by descending result count and preserves configured
+  category order when counts are equal.
+- Escapes untrusted content in HTML while keeping the plain-text alternative free of
+  HTML entities.
+- Uses informative LLM-written hyperlink text and grounded briefs without displaying
+  a separate DOI, journal, publication-date, or timestamp metadata line.
+
+Persistence and future-RAG foundation
+-------------------------------------
+- Uses PostgreSQL, Alembic migrations, and the pgvector extension.
+- Stores workspaces, profiles, canonical research items, profile-item associations,
+  source chunks, embeddings, newsletter issues, issue items, and source messages.
+- Deduplicates stored research items by a globally unique identity fingerprint.
+- Stores one normalized source-grounded chunk per result in V1.
+- Embeds source text rather than generated newsletter prose.
+- Stores embedding provider, model, dimensions, vector, content hash, status, and
+  errors so failed vectors can be retried later.
+- Allows embedding failure without blocking Gmail draft creation.
+- Does not implement similarity retrieval or RAG generation in Version 1.
+
+Recovery, deployment, and commands
+----------------------------------
+- Persists issue and source-message state before creating the Gmail draft.
+- Uses stable issue keys, leases, and stored draft IDs to resume interrupted runs and
+  avoid duplicate drafts.
+- Keeps label-preserving inspection runs on a separate idempotent issue key so they
+  cannot block the corresponding scheduled production run.
+- Includes Docker and Railway configuration and applies Alembic migrations during
+  deployment.
+- Provides these commands: auth, validate-config, check-gmail, sample-preview,
+  run --dry-run, run --profile PROFILE_ID, run --keep-labels,
+  run --keep-labels --lookback-days DAYS, run, and retry-embeddings.
+- Includes automated tests for configuration, parsing, enrichment, model contracts,
+  empty-category filtering, rendering, schedule/date separation, pipeline recovery,
+  and profile failure isolation.
+
+Version 1 boundaries
+--------------------
+- One workspace and one connected Gmail account are assumed.
+- Profiles are file-configured rather than managed through an application UI or API.
+- Execution is cron-based without a durable distributed job queue.
+- Provider rate limits are paced and retried, but there is no multi-provider failover
+  or account-wide quota scheduler.
+- Deduplication does not yet perform multi-key entity resolution or metadata merging.
+- Stored vectors are a future-RAG foundation; no retrieval or similarity search is
+  exposed in Version 1.
+- Drafts require human review and are never automatically sent.
+
+
+1. Stronger research-result deduplication
+------------------------------------------
+
+Current Version 1 behavior:
+- Results are enriched before categorization.
+- Results are clustered using DOI, canonical URL, normalized title, exact source
+  content, and conservative high-confidence abstract/snippet similarity.
+- Differently titled copies and mixed DOI availability are handled when substantive
+  content provides strong matching evidence.
+- The richest member of each cluster is retained before any LLM call.
+- PostgreSQL prevents duplicate fingerprints from being stored.
+
+Version 2 improvements:
+- Extend matching from the current issue batch to durable cross-run entity resolution
+  against previously stored research items.
+- Add an identity-alias table so DOI, URL, repository IDs, and content signatures can
+  resolve to one canonical research entity over time.
+- Normalize DOI URL forms, prefixes, casing, whitespace, and trailing punctuation.
+- Add identifiers such as PubMed ID, PubMed Central ID, arXiv ID, and publisher
+  article ID where available.
+- Resolve known DOI and repository redirects into stable canonical identities.
+- Add conservative title-and-author matching for records without durable IDs.
+- Avoid unsafe fuzzy merges by requiring supporting evidence such as author,
+  publication year, venue, or abstract similarity.
+- Merge complementary metadata from duplicates instead of simply discarding every
+  later record; retain provenance back to every Gmail alert and source URL.
+- Track duplicate groups and merge decisions for audit, correction, and debugging.
+- Add a normalized DOI database column with a partial unique index where safe.
+- Add tests for mixed DOI availability, repository-versus-publisher URLs, DOI case
+  differences, translated titles, preprint-to-publication relationships, and false
+  positive title matches.
+
+Acceptance target:
+A paper appearing across different issue runs, Scholar alerts, publisher pages,
+repositories, or DOI URL variants resolves to one durable canonical entity, is
+embedded once per canonical source chunk, and preserves all source provenance.
+
+
+2. Retrieval-Augmented Generation (RAG)
+---------------------------------------
+
+- Add vector retrieval over the existing document_chunks and embeddings tables.
+- Support global, workspace-scoped, profile-scoped, topic-scoped, and date-scoped
+  retrieval filters.
+- Retrieve past related publications to provide trend and continuity context.
+- Keep newsletter claims grounded in retrieved source chunks with explicit source
+  provenance.
+- Add hybrid retrieval using vector similarity plus keyword/metadata filters.
+- Add reranking, relevance thresholds, and diversity controls.
+- Version embedding and retrieval configurations without rebuilding unrelated data.
+- Add evaluation datasets for relevance, faithfulness, citation correctness, and
+  hallucination resistance.
+
+
+3. Multi-user and multi-workspace support
+-----------------------------------------
+
+- Move profile configuration from YAML to a validated database-backed service while
+  retaining import/export support.
+- Add user accounts, workspace membership, roles, and permissions.
+- Store separate encrypted Gmail OAuth credentials for each connected account.
+- Enforce workspace boundaries in every repository query and service operation.
+- Support multiple Gmail accounts, recipients, schedules, time zones, and branding
+  configurations per workspace.
+- Add onboarding, profile editing, OAuth reconnect, and credential-revocation flows.
+- Add audit logs for profile changes, draft creation, acknowledgements, and retries.
+
+
+4. Queue-based concurrency and provider reliability
+---------------------------------------------------
+
+- Replace the single cron process with a scheduler plus durable job queue and worker
+  pool when traffic requires it.
+- Create idempotent jobs for ingestion, enrichment, classification, summarization,
+  embeddings, rendering, publishing, and acknowledgement.
+- Apply bounded concurrency per workspace, profile, provider, and destination domain.
+- Add provider-aware token/request budgets, adaptive pacing, Retry-After handling,
+  exponential backoff, jitter, and circuit breakers.
+- Add dead-letter handling and an operator-controlled replay mechanism.
+- Allow one profile, item, or provider failure to remain isolated from other work.
+- Resume partial runs without repeating completed LLM calls or creating duplicate
+  Gmail drafts.
+- Support configurable LLM and embedding provider fallbacks with recorded provenance.
+
+
+5. Application/API layer
+------------------------
+
+- Add a versioned internal API for workspaces, profiles, runs, issues, sources, and
+  provider status.
+- Add an administrative interface for category and prompt configuration, previewing,
+  validation, run history, failed items, embedding status, and draft links.
+- Provide preview-and-approval workflows before Gmail acknowledgement is activated.
+- Support manual reruns and draft revisions from persisted issue data without
+  reprocessing Gmail messages.
+- Add configuration version history, comparison, rollback, and staged activation.
+
+
+6. Observability and operational controls
+-----------------------------------------
+
+- Add structured metrics for message counts, extracted results, duplicate rate,
+  enrichment success, LLM usage, latency, retries, cost, and draft outcomes.
+- Add trace/correlation IDs across workspace, profile, issue, message, and item jobs.
+- Add dashboards and alerts for missed schedules, OAuth failures, provider quotas,
+  pending embeddings, stuck leases, and draft failures.
+- Add health/readiness checks and dependency diagnostics.
+- Define retention, backup, recovery, and database maintenance procedures.
+
+
+7. Security and compliance hardening
+------------------------------------
+
+- Encrypt OAuth and provider credentials at rest and rotate them safely.
+- Apply least-privilege access, secret-manager integration, and environment isolation.
+- Add source-content sanitization and prompt-injection defenses to every RAG path.
+- Add configurable data retention and deletion by workspace.
+- Record data provenance and generated-output lineage for auditability.
+- Perform dependency, container, and application security scanning.
+
+
+8. Version 2 validation and release criteria
+--------------------------------------------
+
+- Load-test concurrent workspaces and profiles under realistic provider limits.
+- Test tenant isolation, job idempotency, interrupted-run recovery, provider outages,
+  OAuth expiry, duplicate merging, and database contention.
+- Evaluate RAG relevance and groundedness using a fixed research benchmark set.
+- Confirm that no code path automatically sends email unless a separately designed,
+  explicitly authorized sending feature is introduced.
+- Roll out behind feature flags, beginning with duplicate resolution and persisted
+  draft revision before enabling RAG or multi-user access.
+
+
+Suggested implementation order
+------------------------------
+
+1. Multi-key duplicate resolution and metadata merging.
+2. Persisted draft revision and operational observability.
+3. Durable queue and idempotent worker jobs.
+4. Database-backed profiles and multi-workspace authentication.
+5. RAG retrieval, grounding, evaluation, and controlled rollout.
+6. Administrative UI/API and broader production hardening.
