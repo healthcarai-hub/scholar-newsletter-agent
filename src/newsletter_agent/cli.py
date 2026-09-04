@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -16,7 +17,7 @@ from newsletter_agent.application.pipeline import (
     log_results,
     run_context,
 )
-from newsletter_agent.config import EnvironmentSettings, load_config
+from newsletter_agent.config import AppConfig, EnvironmentSettings, load_config
 from newsletter_agent.examples import render_sample_previews
 from newsletter_agent.infrastructure.database import PostgresRepository
 from newsletter_agent.infrastructure.enrichment import HttpMetadataEnricher
@@ -79,7 +80,25 @@ def _require(value: str | None, name: str) -> str:
     return value
 
 
-def _services(config, settings: EnvironmentSettings, *, dry_run: bool):
+def _rag_indexing_requested(
+    config: AppConfig, profile_ids: Sequence[str] | None = None
+) -> bool:
+    selected = set(profile_ids or ())
+    return any(
+        profile.enabled
+        and profile.rag_indexing_enabled
+        and (not selected or profile_id in selected)
+        for profile_id, profile in config.profiles.items()
+    )
+
+
+def _services(
+    config: AppConfig,
+    settings: EnvironmentSettings,
+    *,
+    dry_run: bool,
+    profile_ids: Sequence[str] | None = None,
+):
     gmail = GmailAdapter(build_gmail_service(settings))
     categorizer = OpenAICompatibleCategorizer(
         base_url=_require(settings.llm_base_url, "LLM_BASE_URL"),
@@ -94,6 +113,7 @@ def _services(config, settings: EnvironmentSettings, *, dry_run: bool):
     embedder = None
     if not dry_run:
         repository = PostgresRepository(_require(settings.database_url, "DATABASE_URL"))
+    if not dry_run and _rag_indexing_requested(config, profile_ids):
         embedder = OpenAICompatibleEmbeddingProvider(
             base_url=_require(settings.embedding_base_url, "EMBEDDING_BASE_URL"),
             api_key=_require(settings.embedding_api_key, "EMBEDDING_API_KEY"),
@@ -125,7 +145,12 @@ async def _run_command(args, config) -> int:
             "--lookback-days requires --keep-labels or --dry-run so the production window "
             "cannot be changed accidentally"
         )
-    pipeline, repository = _services(config, EnvironmentSettings.from_env(), dry_run=args.dry_run)
+    pipeline, repository = _services(
+        config,
+        EnvironmentSettings.from_env(),
+        dry_run=args.dry_run,
+        profile_ids=args.profiles,
+    )
     try:
         results = await pipeline.run(
             profile_ids=args.profiles,

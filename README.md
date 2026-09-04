@@ -22,6 +22,7 @@ reviewable Gmail drafts. It never sends email.
   conservative abstract/snippet similarity across differently titled copies.
 - Keeps bibliographic metadata internally but omits the DOI/journal/date metadata line from cards.
 - Stores canonical papers, profile associations, source chunks, and embeddings for future RAG.
+- Allows each profile to enable or disable future-RAG corpus indexing independently.
 - Recovers an interrupted run without producing a second draft.
 - Isolates profile failures so another topic can still complete.
 
@@ -41,6 +42,15 @@ newsletter-agent sample-preview --output outputs
 Edit `config.yaml` to set topics, Gmail label names, categories, prompts, recipients, greeting,
 introduction, closing, signature, and branding. The configuration contains no credentials and is
 safe to commit. Keep all secrets in environment variables.
+
+Set `rag_indexing_enabled: true` on a profile to store its normalized research results, profile
+associations, source chunks, and embeddings for future RAG. Set it to `false` to skip those corpus
+records and embedding calls while still retaining the operational profile, issue, source-message,
+and Gmail draft state needed for safe recovery. The setting defaults to `true` for backward
+compatibility and affects future processing only; disabling it does not delete historical corpus
+records. Since canonical sources are globally deduplicated, a source may still exist globally when
+another indexed profile ingests it; no association is created for the opted-out profile, so future
+profile-filtered retrieval will exclude it.
 
 Use the research subject itself for `topic` (for example, `Migraine` or `Cardiology`). The supplied
 newsletter convention adds “Research” through `Weekly {topic} Research Digest` and
@@ -156,6 +166,13 @@ are generated together in one request per result to reduce request and token usa
 full normalized source chunk in PostgreSQL. Fixed-dimension models can leave
 `EMBEDDING_DIMENSIONS` blank; the returned vector length is recorded automatically.
 
+## Git and production workflow
+
+Perform normal work on `develop`; reserve `main` for reviewed production releases. Railway tracks
+`main`, but auto-deploy is disabled, so releasing a new version requires a deliberate manual
+deployment after the pull request is merged. See [GIT_WORKFLOW.md](GIT_WORKFLOW.md) for the daily
+development commands, testing checklist, release process, recovery steps, and rollback guidance.
+
 ## Railway deployment
 
 1. Provision PostgreSQL with the `vector` extension available.
@@ -176,8 +193,8 @@ defaults to disabled if its variable is missing or has any value other than the 
 ## Adding another topic
 
 Copy a profile in `config.yaml`, give it a unique profile ID and Gmail label, then change its
-`topic`, categories, prompt wording, subject/title, recipients, and accent color. Validate before
-deploying. Each enabled profile creates its own issue and draft.
+`topic`, `rag_indexing_enabled` policy, categories, prompt wording, subject/title, recipients, and
+accent color. Validate before deploying. Each enabled profile creates its own issue and draft.
 
 ## Future RAG and multi-user work
 

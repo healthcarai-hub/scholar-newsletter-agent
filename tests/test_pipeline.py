@@ -338,6 +338,25 @@ def test_embedding_failure_does_not_block_draft(config_dict):
     assert gmail.acknowledged
 
 
+def test_profile_can_skip_rag_indexing_without_blocking_draft(config_dict):
+    config_dict["profiles"]["migraine"]["rag_indexing_enabled"] = False
+    config = AppConfig.model_validate(config_dict)
+    gmail = FakeGmail(_batch())
+    repository = FakeRepository()
+
+    results = asyncio.run(
+        _pipeline(config, gmail, repository).run(
+            now=datetime(2026, 9, 3, 21, 0, tzinfo=timezone.utc)
+        )
+    )
+
+    assert results[0].state == "completed"
+    assert repository.persisted == []
+    assert repository.saved_vectors == []
+    assert gmail.created
+    assert gmail.acknowledged == [(["message-1"], "label-1")]
+
+
 def test_profile_failure_is_isolated(config_dict):
     config_dict["profiles"]["broken"] = {
         **config_dict["profiles"]["migraine"],
