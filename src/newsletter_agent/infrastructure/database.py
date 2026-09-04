@@ -71,6 +71,7 @@ newsletter_profiles = Table(
     Column("profile_id", String(120), primary_key=True),
     Column("topic", String(240), nullable=False),
     Column("enabled", Boolean, nullable=False),
+    Column("rag_indexing_enabled", Boolean, nullable=False),
     Column("config_hash", String(64), nullable=False),
     Column("config_snapshot", JSON, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -219,6 +220,7 @@ class PostgresRepository:
                     profile_id=context.profile_id,
                     topic=profile.topic,
                     enabled=profile.enabled,
+                    rag_indexing_enabled=profile.rag_indexing_enabled,
                     config_hash=config_hash,
                     config_snapshot=config_snapshot,
                     updated_at=now,
@@ -228,6 +230,7 @@ class PostgresRepository:
                     set_={
                         "topic": profile.topic,
                         "enabled": profile.enabled,
+                        "rag_indexing_enabled": profile.rag_indexing_enabled,
                         "config_hash": config_hash,
                         "config_snapshot": config_snapshot,
                         "updated_at": now,

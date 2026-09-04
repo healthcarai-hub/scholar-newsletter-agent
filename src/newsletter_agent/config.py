@@ -141,6 +141,7 @@ class NewsletterConfig(BaseModel):
 class ProfileConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     enabled: bool = True
+    rag_indexing_enabled: bool = True
     topic: str = Field(min_length=1, max_length=160)
     gmail: GmailProfileConfig
     categories: tuple[CategoryConfig, ...] = Field(min_length=1)

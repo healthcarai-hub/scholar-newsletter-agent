@@ -12,6 +12,15 @@ def test_topic_and_categories_are_validated_config_variables(config_dict):
     assert [category.name for category in profile.categories] == ["Mechanisms", "Treatments"]
     assert "Mechanisms: Biology" in profile.category_prompt()
     assert "Additional Research" in profile.allowed_categories
+    assert profile.rag_indexing_enabled is True
+
+
+def test_rag_indexing_can_be_disabled_per_profile(copied_config):
+    copied_config["profiles"]["migraine"]["rag_indexing_enabled"] = False
+
+    config = AppConfig.model_validate(copied_config)
+
+    assert config.profiles["migraine"].rag_indexing_enabled is False
 
 
 def test_unknown_prompt_placeholder_is_rejected(copied_config):

@@ -263,7 +263,14 @@ class NewsletterPipeline:
                     )
 
                 assert persisted is not None and self.repository is not None
-                await self._persist_and_embed(context, persisted.issue_id, classified)
+                if profile.rag_indexing_enabled:
+                    await self._persist_and_embed(context, persisted.issue_id, classified)
+                else:
+                    logger.info(
+                        "rag_indexing_skipped profile=%s count=%s",
+                        profile_id,
+                        len(classified),
+                    )
                 draft_id = await self.publisher.create_or_find(
                     rendered,
                     context.issue_key,

@@ -17,6 +17,7 @@ runtime:
 profiles:
   migraine:
     enabled: true
+    rag_indexing_enabled: true
     topic: Migraine
     gmail:
       label_name: Scholar Alerts/Migraine
@@ -72,6 +73,7 @@ profiles:
 
   cardiology:
     enabled: false
+    rag_indexing_enabled: false
     topic: Cardiology
     gmail:
       label_name: Scholar Alerts/Cardiology
