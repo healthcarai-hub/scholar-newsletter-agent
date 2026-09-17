@@ -544,44 +544,6 @@ class PostgresRepository:
             self._record_draft_sync, issue_id, draft_id, subject, summary
         )
 
-    def _pending_message_ids_sync(self, issue_id: str) -> list[str]:
-        with self.engine.connect() as connection:
-            return list(
-                connection.execute(
-                    select(source_messages.c.message_id).where(
-                        and_(
-                            source_messages.c.issue_id == issue_id,
-                            source_messages.c.acknowledged_at.is_(None),
-                        )
-                    )
-                ).scalars()
-            )
-
-    async def pending_message_ids(self, issue_id: str) -> list[str]:
-        return await asyncio.to_thread(self._pending_message_ids_sync, issue_id)
-
-    def _mark_messages_acknowledged_sync(
-        self, issue_id: str, message_ids: Sequence[str]
-    ) -> None:
-        if not message_ids:
-            return
-        with self.engine.begin() as connection:
-            connection.execute(
-                update(source_messages)
-                .where(
-                    and_(
-                        source_messages.c.issue_id == issue_id,
-                        source_messages.c.message_id.in_(list(message_ids)),
-                    )
-                )
-                .values(acknowledged_at=self._now())
-            )
-
-    async def mark_messages_acknowledged(
-        self, issue_id: str, message_ids: Sequence[str]
-    ) -> None:
-        await asyncio.to_thread(self._mark_messages_acknowledged_sync, issue_id, message_ids)
-
     def _set_issue_state_sync(self, issue_id: str, state: str, error: str | None = None) -> None:
         with self.engine.begin() as connection:
             connection.execute(

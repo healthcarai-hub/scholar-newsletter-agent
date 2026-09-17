@@ -1,5 +1,5 @@
 SCHOLAR NEWSLETTER AGENT — VERSION 2 ROADMAP
-Last updated: September 2, 2026
+Last updated: September 17, 2026
 
 Purpose
 -------
@@ -53,8 +53,10 @@ Gmail workflow
 - Parses Google Scholar alert HTML and plain-text fallbacks into typed research items.
 - Treats an unparseable labeled alert as a profile failure and leaves its label intact.
 - Creates or recovers a Gmail draft but contains no Gmail send endpoint.
-- Removes the configured label only from exactly the successfully processed source
-  messages, and only after the draft ID has been durably recorded.
+- Queries Gmail by the configured rolling time window before fetching message bodies,
+  then applies an exact local boundary check.
+- Never removes or changes the configured label; processed alerts remain available in
+  Gmail while older labeled messages fall outside subsequent weekly windows.
 
 Enrichment and duplicate handling
 ---------------------------------
@@ -213,7 +215,7 @@ embedded once per canonical source chunk, and preserves all source provenance.
 - Support multiple Gmail accounts, recipients, schedules, time zones, and branding
   configurations per workspace.
 - Add onboarding, profile editing, OAuth reconnect, and credential-revocation flows.
-- Add audit logs for profile changes, draft creation, acknowledgements, and retries.
+- Add audit logs for profile changes, draft creation, source-message processing, and retries.
 
 
 4. Queue-based concurrency and provider reliability
@@ -222,7 +224,7 @@ embedded once per canonical source chunk, and preserves all source provenance.
 - Replace the single cron process with a scheduler plus durable job queue and worker
   pool when traffic requires it.
 - Create idempotent jobs for ingestion, enrichment, classification, summarization,
-  embeddings, rendering, publishing, and acknowledgement.
+  embeddings, rendering, and publishing.
 - Apply bounded concurrency per workspace, profile, provider, and destination domain.
 - Add provider-aware token/request budgets, adaptive pacing, Retry-After handling,
   exponential backoff, jitter, and circuit breakers.
@@ -240,7 +242,7 @@ embedded once per canonical source chunk, and preserves all source provenance.
   provider status.
 - Add an administrative interface for category and prompt configuration, previewing,
   validation, run history, failed items, embedding status, and draft links.
-- Provide preview-and-approval workflows before Gmail acknowledgement is activated.
+- Provide preview-and-approval workflows for draft revisions and any future mailbox action.
 - Support manual reruns and draft revisions from persisted issue data without
   reprocessing Gmail messages.
 - Add configuration version history, comparison, rollback, and staged activation.
@@ -282,12 +284,99 @@ embedded once per canonical source chunk, and preserves all source provenance.
   draft revision before enabling RAG or multi-user access.
 
 
+9. Storage capacity and vector database strategy
+------------------------------------------------
+
+Current position
+----------------
+- Keep PostgreSQL and pgvector as the Version 2 system of record and retrieval
+  backend unless measured capacity or retrieval requirements justify a change.
+- The current Railway Hobby volume starts at 5 GB. Railway documents that volumes
+  on paid plans can be resized; the Pro plan starts at 50 GB and supports larger
+  self-service expansion.
+- The current embedding configuration uses 768 dimensions. A pgvector `vector`
+  value uses `4 * dimensions + 8` bytes, or 3,080 bytes per stored embedding before
+  row, text, metadata, index, and PostgreSQL overhead.
+- Approximate raw-vector storage is 31 MB for 10,000 vectors, 308 MB for 100,000,
+  1.54 GB for 500,000, and 3.08 GB for 1,000,000. These figures are planning guides,
+  not total database-size predictions.
+- Full database usage also includes research text, metadata, provenance, newsletter
+  state, PostgreSQL indexes, write-ahead logging, and any future HNSW or IVFFlat
+  retrieval indexes. Actual growth must therefore be measured rather than inferred
+  only from vector count.
+
+Existing storage efficiencies
+-----------------------------
+- Store one normalized source chunk per canonical research result in Version 1.
+- Store one embedding per canonical chunk, provider, and model rather than one copy
+  for every profile.
+- Share canonical research items across profiles through profile associations.
+- Deduplicate results before categorization and persistence.
+- Embed bounded source text rather than newsletter-generated prose.
+- Respect each profile's `rag_indexing_enabled` setting so profiles that do not need
+  a future corpus do not consume vector storage.
+
+Monitoring and capacity controls
+--------------------------------
+- Record database size, table size, index size, vector count, chunk count, weekly
+  growth, and estimated months remaining.
+- Add capacity notifications at 60 percent, 75 percent, and 85 percent usage.
+  - At 60 percent, review the recent growth rate and largest relations.
+  - At 75 percent, schedule a live volume expansion or plan migration.
+  - At 85 percent, pause nonessential indexing until capacity is safely increased.
+- Review unusually large source chunks and metadata without removing provenance
+  needed for grounded retrieval.
+- Add retention rules only for genuinely disposable operational logs; do not delete
+  canonical research evidence without an approved retention policy.
+- Enable and regularly test Railway volume backups. Consider point-in-time recovery
+  once the accumulated research corpus becomes business-critical.
+- Evaluate `halfvec`, binary quantization, partitioning, or archival tiers only after
+  retrieval-quality and storage measurements show a real need.
+
+Chroma decision record
+----------------------
+- Chroma does not remove the storage requirement when self-hosted; it still needs a
+  persistent volume. Chroma Cloud moves storage to a managed external service but
+  adds another provider, bill, network dependency, and operational boundary.
+- Chroma must not replace PostgreSQL tables that hold workspaces, profiles, source
+  provenance, newsletter issues, source-message state, or draft recovery.
+- If Chroma is introduced, PostgreSQL remains the source of truth and Chroma becomes
+  a derived, rebuildable retrieval index containing chunk IDs, embeddings, source
+  text, and filter metadata.
+- Add a dedicated `VectorIndex` interface before any trial so pgvector and Chroma can
+  be evaluated without changing the ingestion, newsletter, or operational database
+  contracts.
+- A Chroma trial requires controlled backfill, dual-write reconciliation, profile
+  isolation tests, retrieval-quality comparison, backup/rebuild procedures, and a
+  rollback path.
+- Prefer a managed Chroma deployment or a separate always-on service with persistent
+  storage. Do not place a persistent Chroma instance inside the terminating Railway
+  newsletter cron container.
+
+Triggers for reconsidering pgvector
+-----------------------------------
+- The database approaches its planned capacity after resizing and retention work.
+- Measured pgvector latency or recall misses agreed retrieval targets at production
+  corpus size despite appropriate indexes and tuning.
+- Retrieval traffic becomes large enough to require independent scaling from the
+  operational PostgreSQL workload.
+- Multi-region, distributed retrieval, or managed vector-search operations provide
+  enough business value to justify a second datastore.
+
+Acceptance target:
+Storage growth is visible and forecastable, backups are tested, capacity is expanded
+before it becomes urgent, and any vector-backend change is driven by measurements.
+PostgreSQL remains authoritative so a secondary retrieval index can always be rebuilt
+without losing research provenance or newsletter recovery state.
+
+
 Suggested implementation order
 ------------------------------
 
 1. Multi-key duplicate resolution and metadata merging.
-2. Persisted draft revision and operational observability.
+2. Persisted draft revision, storage monitoring, backups, and operational visibility.
 3. Durable queue and idempotent worker jobs.
 4. Database-backed profiles and multi-workspace authentication.
-5. RAG retrieval, grounding, evaluation, and controlled rollout.
-6. Administrative UI/API and broader production hardening.
+5. RAG retrieval, grounding, evaluation, and controlled rollout on pgvector.
+6. Compare a secondary vector backend only if measured triggers are reached.
+7. Administrative UI/API and broader production hardening.

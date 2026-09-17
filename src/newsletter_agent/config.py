@@ -69,6 +69,21 @@ class GmailProfileConfig(BaseModel):
         return value.strip()
 
 
+class ContentPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    enabled: bool = True
+    low_priority_source_types: tuple[str, ...] = (
+        "commercial_blog",
+        "marketing_page",
+        "seo_content",
+    )
+    cluster_within_same_domain: bool = True
+    title_similarity_threshold: float = Field(default=0.40, ge=0, le=1)
+    content_similarity_threshold: float = Field(default=0.78, ge=0, le=1)
+    max_items_per_cluster: int = Field(default=1, ge=1, le=10)
+    max_low_priority_items_per_domain: int = Field(default=1, ge=1, le=20)
+
+
 class PromptConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     categorization: str
@@ -144,6 +159,7 @@ class ProfileConfig(BaseModel):
     rag_indexing_enabled: bool = True
     topic: str = Field(min_length=1, max_length=160)
     gmail: GmailProfileConfig
+    content_policy: ContentPolicyConfig = ContentPolicyConfig()
     categories: tuple[CategoryConfig, ...] = Field(min_length=1)
     prompts: PromptConfig
     newsletter: NewsletterConfig

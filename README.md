@@ -10,8 +10,10 @@ reviewable Gmail drafts. It never sends email.
 - Uses `{topic}` and structured `{categories}` values in editable prompt templates.
 - Reads one Gmail label and creates one Gmail draft per profile.
 - Reads only alerts inside the configured rolling window (`alert_lookback_days`, seven by default).
+- Preserves every Gmail label; processed alerts remain available in the mailbox.
 - Omits every category that has no results, including from the navigation.
-- Orders populated categories by descending result count, with configured order as the tie-breaker.
+- Places categories containing research above commercial-only categories, then orders each tier by
+  descending result count with configured order as the tie-breaker.
 - Runs on Thursday evening but uses the following Friday as the displayed issue date.
 - Supports per-profile greeting, introduction, closing, and signature copy.
 - Places otherwise unmatched items in the non-empty-only `Additional Research` fallback section.
@@ -20,6 +22,11 @@ reviewable Gmail drafts. It never sends email.
   bot-blocked or temporarily unreachable links as unverified.
 - Deduplicates before categorization using DOI, canonical URL, normalized title, and
   conservative abstract/snippet similarity across differently titled copies.
+- Classifies source types using scholarly identifiers, metadata, URL/content signals, and a
+  constrained model result. Commercial, marketing, and SEO material is low priority and capped at
+  one retained item per source domain; distinct academic papers from one publisher remain allowed.
+- Shows a compact platform/type line on each card (for example,
+  `ScienceDirect · Research Paper` or `NooBru · Consumer Editorial`).
 - Keeps bibliographic metadata internally but omits the DOI/journal/date metadata line from cards.
 - Stores canonical papers, profile associations, source chunks, and embeddings for future RAG.
 - Allows each profile to enable or disable future-RAG corpus indexing independently.
@@ -51,6 +58,12 @@ compatibility and affects future processing only; disabling it does not delete h
 records. Since canonical sources are globally deduplicated, a source may still exist globally when
 another indexed profile ingests it; no association is created for the opted-out profile, so future
 profile-filtered retrieval will exclude it.
+
+Each profile may customize `content_policy`. The default policy clusters similar low-priority
+commercial/marketing/SEO pages and keeps at most one such item per source domain. This cap does not
+apply to `research_paper`, `academic_review`, or `conference_material` sources. Internal source
+types remain available for filtering, while all commercial-facing types use the neutral
+reader-facing label `Consumer Editorial`.
 
 Use the research subject itself for `topic` (for example, `Migraine` or `Cardiology`). The supplied
 newsletter convention adds “Research” through `Weekly {topic} Research Digest` and
@@ -86,15 +99,15 @@ provider call if a required field is missing or an unknown field is present.
 
 Only `gmail.label_name` is accepted in each profile. At runtime the authenticated Gmail API
 lists the account's labels, matches that name case-insensitively, and uses the returned Gmail
-label ID for message queries and post-draft acknowledgement. Label IDs are never configured.
+label ID for read-only message queries. Label IDs are never configured.
 
 Local CLI commands load `.env` automatically. Quoting values is optional unless they contain
 spaces, `#`, or leading/trailing whitespace; existing process and Railway environment variables
 always take precedence over `.env`.
 
-The application requests `gmail.modify`, which is needed to read alert bodies, create drafts,
-and remove the configured label. There is intentionally no call to `users.messages.send` or
-`users.drafts.send` anywhere in the codebase.
+The application currently requests `gmail.modify` to preserve compatibility with existing OAuth
+tokens while reading alert bodies and creating drafts. There is intentionally no Gmail label
+mutation call and no call to `users.messages.send` or `users.drafts.send` anywhere in the codebase.
 
 For a personal OAuth application, ensure the consent configuration is suitable for durable
 offline access before relying on a weekly cloud job.
@@ -119,7 +132,7 @@ newsletter-agent run --dry-run
 # Process one enabled profile.
 newsletter-agent run --profile migraine
 
-# Process normally and create the draft, but preserve all source Gmail labels.
+# Create an isolated inspection draft. Gmail labels are preserved by every run.
 newsletter-agent run --profile migraine --keep-labels
 
 # Temporarily inspect a 10-day window; config.yaml remains at its seven-day default.
@@ -132,29 +145,30 @@ newsletter-agent run
 newsletter-agent retry-embeddings --limit 200
 ```
 
-Dry-run previews are written under `runtime.preview_directory`. The weekly message window is
-start-exclusive and cutoff-inclusive, preventing boundary messages from appearing twice. Old
-labeled messages outside the window are ignored and left untouched. Processing uses the Thursday
-8:00 PM IST cutoff, while the subject and newsletter display the following Friday. For example, a
-Thursday, September 3 run produces a September 4 issue. A normal run follows this order:
+Dry-run previews are written under `runtime.preview_directory`. Gmail receives a server-side
+timestamp query for the rolling window, followed by an exact local boundary check. The weekly
+message window is start-exclusive and cutoff-inclusive, preventing boundary messages from
+appearing twice. Old labeled messages outside the window are not fetched for processing, and all
+labels remain untouched. Processing uses the Thursday 8:00 PM IST cutoff, while the subject and
+newsletter display the following Friday. For example, a Thursday, September 3 run produces a
+September 4 issue. A normal run follows this order:
 
-1. Read and parse all labeled messages at or before the fixed weekly cutoff.
+1. Read and parse labeled messages inside the configured seven-day window.
 2. Claim or resume the issue in PostgreSQL.
 3. Enrich, categorize, summarize, persist, and attempt embeddings.
 4. Create or find the Gmail draft.
 5. Persist the draft ID.
-6. Remove the source label from the recorded message IDs.
+6. Leave every source Gmail label unchanged.
 7. Mark the issue complete.
 
-Parsing, model, rendering, or draft failures leave Gmail labels untouched. Embedding failures are
-stored for retry and do not block the newsletter. Every normal run first attempts a bounded
-backfill of pending vectors; `retry-embeddings` is also available for an explicit larger backfill.
-For an inspection run that should still persist data and create a real Gmail draft, add
-`--keep-labels`; the resulting issue is completed without acknowledging or modifying its source
-message labels. It uses a separate idempotent issue-key variant, so an inspection run does not
-claim or block the corresponding scheduled production issue. `--lookback-days` can temporarily
-override the configured window only when combined with `--keep-labels` or `--dry-run`; its value is
-included in the inspection issue key.
+Successful and failed runs both leave Gmail labels untouched. Embedding failures are stored for
+retry and do not block the newsletter. Every normal run first attempts a bounded backfill of
+pending vectors; `retry-embeddings` is also available for an explicit larger backfill. The legacy
+`--keep-labels` flag now identifies an inspection run; labels are preserved whether or not the flag
+is supplied. An inspection run uses a separate idempotent issue-key variant, so it does not claim or
+block the corresponding scheduled production issue. `--lookback-days` can temporarily override the
+configured window only when combined with `--keep-labels` or `--dry-run`; its value is included in
+the inspection issue key.
 
 For rate-limited OpenAI-compatible providers, use `max_llm_concurrency`,
 `llm_request_interval_seconds`, `llm_max_retries`, and `llm_max_retry_wait_seconds`. The supplied
@@ -182,8 +196,7 @@ development commands, testing checklist, release process, recovery steps, and ro
 5. Keep `NEWSLETTER_PRODUCTION_ENABLED=false` during setup and deploy. The pre-deploy command
    applies Alembic migrations, while the start command only validates configuration.
 6. Perform acceptance checks, then set `NEWSLETTER_PRODUCTION_ENABLED=true` to activate live
-   scheduled runs. A live run creates Gmail drafts and removes labels only after successful draft
-   creation.
+   scheduled runs. A live run creates Gmail drafts while leaving all Gmail labels unchanged.
 
 `railway.json` schedules `30 14 * * 4`, which is Thursday 14:30 UTC / 20:00 IST. The process is
 one-shot and exits after all enabled profiles reach a terminal result. The production safety gate

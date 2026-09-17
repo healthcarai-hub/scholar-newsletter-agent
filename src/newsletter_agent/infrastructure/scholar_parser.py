@@ -113,21 +113,62 @@ def _is_candidate(anchor: Tag) -> bool:
     return text.casefold() not in excluded
 
 
+def _bounded_scholar_text(anchor: Tag) -> tuple[str, str | None] | None:
+    """Read only the metadata blocks belonging to one Scholar result heading.
+
+    Current Scholar alert emails place every result directly in a shared outer
+    ``div`` as ``h3`` + author ``div`` + ``div.gse_alrt_sni``. Treating that
+    shared div as a result container makes the first result absorb every later
+    title and snippet, which can corrupt summaries and create false duplicates.
+    """
+    heading = anchor.find_parent("h3")
+    if heading is None:
+        return None
+
+    blocks: list[str] = []
+    scholar_snippets: list[str] = []
+    for sibling in heading.next_siblings:
+        if not isinstance(sibling, Tag):
+            continue
+        # A heading is the boundary of the next result. Scholar also uses a
+        # trailing empty h3, which is an equally safe stopping point.
+        if sibling.name == "h3" or sibling.select_one("a.gse_alrt_title[href]"):
+            break
+        if sibling.name == "br":
+            break
+        value = _clean(sibling.get_text(" ", strip=True))
+        if not value:
+            continue
+        blocks.append(value)
+        classes = {str(value) for value in sibling.get("class", [])}
+        if "gse_alrt_sni" in classes:
+            scholar_snippets.append(value)
+
+    if not blocks:
+        return "", None
+    authors = blocks[0][:500]
+    # Prefer Scholar's explicit snippet block. The generic second block keeps
+    # compatibility with simpler/older alert markup without crossing a result
+    # heading boundary.
+    snippet_parts = scholar_snippets or blocks[1:2]
+    return " ".join(snippet_parts)[:3000], authors
+
+
 def _nearby_text(anchor: Tag) -> tuple[str, str | None]:
-    container = anchor.find_parent(["tr", "td", "div", "li"]) or anchor.parent
+    bounded = _bounded_scholar_text(anchor)
+    if bounded is not None:
+        return bounded
+
+    # Conservative fallback for layouts where one result is wrapped in its own
+    # row or list item. Avoid a generic div/td ancestor: those frequently wrap
+    # the entire alert and therefore contain unrelated results.
+    container = anchor.find_parent(["li", "tr"])
     if not container:
         return "", None
     title = _clean(anchor.get_text(" ", strip=True))
     full = _clean(container.get_text(" ", strip=True))
     remainder = full.replace(title, "", 1).strip(" -–—·")
-    authors = None
-    snippet = remainder
-    if remainder:
-        pieces = [piece.strip() for piece in re.split(r"\s{2,}|\n", remainder) if piece.strip()]
-        if len(pieces) > 1:
-            authors = pieces[0][:500]
-            snippet = " ".join(pieces[1:])
-    return snippet[:3000], authors
+    return remainder[:3000], None
 
 
 def parse_scholar_alert(

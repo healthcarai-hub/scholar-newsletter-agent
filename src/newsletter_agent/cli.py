@@ -58,7 +58,9 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--keep-labels",
         action="store_true",
-        help="Create and persist drafts without removing Gmail labels from source alerts",
+        help=(
+            "Run with an inspection issue key (legacy name; Gmail labels are always preserved)"
+        ),
     )
     run.add_argument(
         "--lookback-days",

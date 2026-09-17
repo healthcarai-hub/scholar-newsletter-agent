@@ -17,6 +17,7 @@ from newsletter_agent.domain.models import (
 )
 from newsletter_agent.domain.scheduling import publication_date
 from newsletter_agent.infrastructure.enrichment import deduplicate_enriched, filter_dead_links
+from newsletter_agent.infrastructure.source_quality import apply_content_policy
 from newsletter_agent.ports import (
     AlertSource,
     Categorizer,
@@ -174,9 +175,9 @@ class NewsletterPipeline:
                 cutoff=cutoff,
                 lookback_days=lookback_days,
             )
-            # A label-preserving inspection run must not claim the production
-            # issue key. Otherwise an early manual run could cause Thursday's
-            # scheduled production run to see the issue as already completed.
+            # An inspection run must not claim the production issue key. Otherwise
+            # an early manual run could cause Thursday's scheduled production run
+            # to see the issue as already completed. All run modes preserve labels.
             if keep_labels:
                 context = replace(
                     context,
@@ -196,14 +197,6 @@ class NewsletterPipeline:
                             draft_id=persisted.draft_id,
                         )
                     if persisted.draft_id:
-                        if not keep_labels:
-                            message_ids = await self.repository.pending_message_ids(
-                                persisted.issue_id
-                            )
-                            await self.alert_source.acknowledge(message_ids, batch.label_id)
-                            await self.repository.mark_messages_acknowledged(
-                                persisted.issue_id, message_ids
-                            )
                         await self.repository.complete_issue(persisted.issue_id)
                         return ProfileRunResult(
                             profile_id=profile_id,
@@ -232,7 +225,18 @@ class NewsletterPipeline:
                         len(unique_enriched),
                         len(live_enriched) - len(unique_enriched),
                     )
-                classified = await self._classify_all(unique_enriched, profile)
+                all_classified = await self._classify_all(unique_enriched, profile)
+                classified = tuple(
+                    apply_content_policy(list(all_classified), profile.content_policy)
+                )
+                if len(classified) != len(all_classified):
+                    logger.info(
+                        "low_priority_content_clustered profile=%s before=%s after=%s removed=%s",
+                        profile_id,
+                        len(all_classified),
+                        len(classified),
+                        len(all_classified) - len(classified),
+                    )
                 summary = await self.categorizer.summarize_issue(classified, profile)
                 values = _template_values(context, profile_id, len(classified))
                 issue = NewsletterIssue(
@@ -279,18 +283,11 @@ class NewsletterPipeline:
                 await self.repository.record_draft(
                     persisted.issue_id, draft_id, rendered.subject, summary
                 )
-                if not keep_labels:
-                    message_ids = await self.repository.pending_message_ids(persisted.issue_id)
-                    await self.alert_source.acknowledge(message_ids, batch.label_id)
-                    await self.repository.mark_messages_acknowledged(
-                        persisted.issue_id, message_ids
-                    )
-                else:
-                    logger.info(
-                        "gmail_labels_kept profile=%s issue_key=%s",
-                        profile_id,
-                        context.issue_key,
-                    )
+                logger.info(
+                    "gmail_labels_kept profile=%s issue_key=%s",
+                    profile_id,
+                    context.issue_key,
+                )
                 await self.repository.complete_issue(persisted.issue_id)
                 return ProfileRunResult(
                     profile_id=profile_id,

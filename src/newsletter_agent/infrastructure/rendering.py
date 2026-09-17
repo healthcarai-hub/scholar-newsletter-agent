@@ -2,12 +2,53 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from pathlib import Path
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader
 
 from newsletter_agent.config import ProfileConfig
 from newsletter_agent.domain.models import NewsletterIssue, RenderedNewsletter
 from newsletter_agent.domain.scheduling import publication_date
+
+
+_PLATFORM_NAMES = {
+    "sciencedirect.com": "ScienceDirect",
+    "springer.com": "Springer",
+    "pubmed.ncbi.nlm.nih.gov": "PubMed",
+    "ncbi.nlm.nih.gov": "NCBI",
+    "mdpi.com": "MDPI",
+    "wiley.com": "Wiley",
+    "tandfonline.com": "Taylor & Francis",
+    "researchgate.net": "ResearchGate",
+    "dbpia.co.kr": "DBpia",
+    "apcz.umk.pl": "APCZ",
+    "noobru.com": "NooBru",
+    "revgear.com": "Revgear",
+    "reincarn.in": "Reincarn",
+}
+
+_SOURCE_TYPE_LABELS = {
+    "research_paper": "Research Paper",
+    "academic_review": "Academic Review",
+    "conference_material": "Conference Material",
+    "research_news": "Research News",
+    "commercial_blog": "Consumer Editorial",
+    "marketing_page": "Consumer Editorial",
+    "seo_content": "Consumer Editorial",
+    "unknown": "Web Article",
+}
+
+
+def source_platform(item) -> str:
+    host = (urlparse(item.enriched.canonical_url).hostname or "").casefold()
+    for suffix, name in _PLATFORM_NAMES.items():
+        if host == suffix or host.endswith(f".{suffix}"):
+            return name
+    return host.removeprefix("www.") or "Web source"
+
+
+def source_type_label(item) -> str:
+    return _SOURCE_TYPE_LABELS.get(item.source_type, "Web Article")
 
 
 class JinjaNewsletterRenderer:
@@ -24,6 +65,10 @@ class JinjaNewsletterRenderer:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self.environment.globals.update(
+            source_platform=source_platform,
+            source_type_label=source_type_label,
+        )
 
     def render(self, issue: NewsletterIssue, profile: ProfileConfig) -> RenderedNewsletter:
         grouped: OrderedDict[str, list] = OrderedDict(
@@ -36,7 +81,16 @@ class JinjaNewsletterRenderer:
         # navigation and sections. Empty categories cannot leak into either
         # representation, and equal counts retain the profile's configured order.
         populated = [(name, items) for name, items in grouped.items() if items]
-        populated.sort(key=lambda pair: len(pair[1]), reverse=True)
+        # Categories containing at least one research/normal-priority result
+        # outrank low-priority-only sections, even when those sections contain
+        # more items. Within each tier, retain descending result-count ordering.
+        populated.sort(
+            key=lambda pair: (
+                any(item.priority != "low" for item in pair[1]),
+                len(pair[1]),
+            ),
+            reverse=True,
+        )
         sections = [
             {"name": name, "anchor": f"category-{index + 1}", "items": items}
             for index, (name, items) in enumerate(populated)

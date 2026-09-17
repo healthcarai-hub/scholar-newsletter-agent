@@ -27,16 +27,12 @@ class FakeGmail:
     def __init__(self, batch, fail_draft=False):
         self.batch = batch
         self.fail_draft = fail_draft
-        self.acknowledged = []
         self.created = []
         self.contexts = []
 
     async def list_pending(self, context, profile):
         self.contexts.append(context)
         return self.batch
-
-    async def acknowledge(self, message_ids, label_id):
-        self.acknowledged.append((list(message_ids), label_id))
 
     async def create_or_find(self, rendered, issue_key, existing_draft_id=None):
         if self.fail_draft:
@@ -103,7 +99,6 @@ class FakeRepository:
         self.failed = []
         self.completed = []
         self.persisted = []
-        self.acknowledged = []
         self.saved_vectors = []
         self.embedding_failures = []
 
@@ -122,12 +117,6 @@ class FakeRepository:
 
     async def record_draft(self, issue_id, draft_id, subject, summary):
         self.draft_id = draft_id
-
-    async def pending_message_ids(self, issue_id):
-        return ["message-1"]
-
-    async def mark_messages_acknowledged(self, issue_id, message_ids):
-        self.acknowledged.extend(message_ids)
 
     async def complete_issue(self, issue_id):
         self.completed.append(issue_id)
@@ -169,7 +158,7 @@ def _pipeline_with_embedder(config, gmail, repository, embedder):
     return pipeline
 
 
-def test_label_is_removed_only_after_draft(config_dict):
+def test_normal_run_creates_draft_without_mutating_gmail_labels(config_dict):
     config = AppConfig.model_validate(config_dict)
     gmail = FakeGmail(_batch())
     repository = FakeRepository()
@@ -180,7 +169,6 @@ def test_label_is_removed_only_after_draft(config_dict):
     )
     assert results[0].state == "completed"
     assert gmail.created
-    assert gmail.acknowledged == [(["message-1"], "label-1")]
     assert repository.saved_vectors
 
 
@@ -196,8 +184,6 @@ def test_keep_labels_creates_draft_without_acknowledging_messages(config_dict):
     )
     assert results[0].state == "completed_labels_kept"
     assert gmail.created == ["default:migraine:2026-09-03:labels-kept:7d"]
-    assert gmail.acknowledged == []
-    assert repository.acknowledged == []
     assert repository.completed == ["issue-1"]
 
 
@@ -215,7 +201,6 @@ def test_one_run_lookback_override_is_isolated_in_inspection_issue_key(config_di
     assert results[0].state == "completed_labels_kept"
     assert gmail.created == ["default:migraine:2026-09-03:labels-kept:10d"]
     assert (gmail.contexts[0].cutoff - gmail.contexts[0].window_start).days == 10
-    assert gmail.acknowledged == []
 
 
 def test_lookback_override_rejects_out_of_range_value(config_dict):
@@ -254,8 +239,6 @@ def test_keep_labels_is_honored_when_recovering_existing_draft(config_dict):
     )
     assert results[0].state == "recovered_labels_kept"
     assert gmail.created == []
-    assert gmail.acknowledged == []
-    assert repository.acknowledged == []
 
 
 def test_draft_failure_preserves_label(config_dict):
@@ -268,7 +251,6 @@ def test_draft_failure_preserves_label(config_dict):
         )
     )
     assert results[0].state == "failed"
-    assert gmail.acknowledged == []
     assert repository.failed
 
 
@@ -321,7 +303,6 @@ def test_existing_draft_recovers_without_recreating(config_dict):
     )
     assert results[0].state == "recovered"
     assert gmail.created == []
-    assert gmail.acknowledged == [(["message-1"], "label-1")]
 
 
 def test_embedding_failure_does_not_block_draft(config_dict):
@@ -335,7 +316,7 @@ def test_embedding_failure_does_not_block_draft(config_dict):
     )
     assert results[0].state == "completed"
     assert repository.embedding_failures
-    assert gmail.acknowledged
+    assert gmail.created
 
 
 def test_profile_can_skip_rag_indexing_without_blocking_draft(config_dict):
@@ -354,7 +335,6 @@ def test_profile_can_skip_rag_indexing_without_blocking_draft(config_dict):
     assert repository.persisted == []
     assert repository.saved_vectors == []
     assert gmail.created
-    assert gmail.acknowledged == [(["message-1"], "label-1")]
 
 
 def test_profile_failure_is_isolated(config_dict):

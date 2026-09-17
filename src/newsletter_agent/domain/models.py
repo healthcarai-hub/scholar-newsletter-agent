@@ -76,6 +76,8 @@ class ClassifiedItem:
     headline: str
     brief: str
     source_label: str | None = None
+    source_type: str = "unknown"
+    priority: str = "normal"
 
 
 @dataclass(frozen=True, slots=True)

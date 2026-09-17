@@ -13,6 +13,7 @@ THIS WEEK AT A GLANCE
 {% if not sections %}No new alert results were available for this issue.
 {% endif %}{% for section in sections %}{{ section.name | upper }}
 {% for entry in section["items"] %}- {{ entry.headline }}
+  {{ source_platform(entry) }} · {{ source_type_label(entry) }}
   {{ entry.brief }}
   {{ entry.enriched.canonical_url }}
 {% endfor %}{% endfor %}{{ newsletter.closing }}

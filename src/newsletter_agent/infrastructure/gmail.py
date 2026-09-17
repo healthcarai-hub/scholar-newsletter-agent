@@ -6,7 +6,7 @@ import os
 from datetime import timezone
 from email.message import EmailMessage
 from email.utils import formatdate
-from typing import Any, Sequence
+from typing import Any
 
 from newsletter_agent.config import EnvironmentSettings, ProfileConfig
 from newsletter_agent.domain.models import AlertBatch, RenderedNewsletter, RunContext, SourceMessage
@@ -27,6 +27,14 @@ def message_is_in_run_window(context: RunContext, internal_date) -> bool:
         < received_utc
         <= context.cutoff.astimezone(timezone.utc)
     )
+
+
+def gmail_window_query(context: RunContext) -> str:
+    """Build a server-side candidate window; exact boundaries are checked locally."""
+    start_epoch = int(context.window_start.astimezone(timezone.utc).timestamp())
+    # Gmail's before: operator is exclusive, while the run cutoff is inclusive.
+    end_epoch = int(context.cutoff.astimezone(timezone.utc).timestamp()) + 1
+    return f"after:{start_epoch} before:{end_epoch}"
 
 
 def _headers(payload: dict[str, Any]) -> dict[str, str]:
@@ -88,7 +96,7 @@ def authorize_interactively(client_id: str, client_secret: str) -> str:
 
 
 class GmailAdapter:
-    """Gmail alert source and draft publisher. Intentionally exposes no send operation."""
+    """Gmail reader and draft publisher with no send or label-mutation operation."""
 
     def __init__(self, service) -> None:
         self.service = service
@@ -120,6 +128,7 @@ class GmailAdapter:
             kwargs: dict[str, Any] = {
                 "userId": "me",
                 "labelIds": [label_id],
+                "q": gmail_window_query(context),
                 "maxResults": 500,
             }
             if page_token:
@@ -166,25 +175,6 @@ class GmailAdapter:
     async def list_pending(self, context: RunContext, profile: ProfileConfig) -> AlertBatch:
         async with self._async_lock:
             return await asyncio.to_thread(self._list_pending_sync, context, profile)
-
-    def _acknowledge_sync(self, message_ids: Sequence[str], label_id: str) -> None:
-        if not message_ids:
-            return
-        for start in range(0, len(message_ids), 1000):
-            batch = list(message_ids[start : start + 1000])
-            (
-                self.service.users()
-                .messages()
-                .batchModify(
-                    userId="me",
-                    body={"ids": batch, "removeLabelIds": [label_id]},
-                )
-                .execute()
-            )
-
-    async def acknowledge(self, message_ids: Sequence[str], label_id: str) -> None:
-        async with self._async_lock:
-            await asyncio.to_thread(self._acknowledge_sync, message_ids, label_id)
 
     def _find_draft_sync(self, subject: str, issue_key: str) -> str | None:
         escaped_subject = subject.replace('"', "")

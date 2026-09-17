@@ -4,11 +4,19 @@ import pytest
 
 from newsletter_agent.application.pipeline import run_context
 from newsletter_agent.config import AppConfig
-from newsletter_agent.infrastructure.gmail import GmailAdapter, message_is_in_run_window
+from newsletter_agent.infrastructure.gmail import (
+    GmailAdapter,
+    gmail_window_query,
+    message_is_in_run_window,
+)
 
 
 def test_gmail_adapter_exposes_no_send_method():
     assert not hasattr(GmailAdapter, "send")
+
+
+def test_gmail_adapter_exposes_no_label_mutation_method():
+    assert not hasattr(GmailAdapter, "acknowledge")
 
 
 class _Executable:
@@ -111,3 +119,19 @@ def test_only_messages_inside_the_seven_day_window_are_selected():
     )
     assert message_is_in_run_window(context, cutoff)
     assert not message_is_in_run_window(context, cutoff + timedelta(seconds=1))
+
+
+def test_gmail_query_limits_candidates_to_the_run_window():
+    cutoff = datetime(2026, 9, 3, 14, 30, tzinfo=timezone.utc)
+    context = run_context(
+        workspace_id="default",
+        profile_id="migraine",
+        topic="migraine research",
+        cutoff=cutoff,
+        lookback_days=7,
+    )
+
+    assert gmail_window_query(context) == (
+        f"after:{int((cutoff - timedelta(days=7)).timestamp())} "
+        f"before:{int(cutoff.timestamp()) + 1}"
+    )

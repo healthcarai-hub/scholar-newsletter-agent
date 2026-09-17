@@ -6,6 +6,7 @@ from newsletter_agent.infrastructure.llm import (
     OpenAICompatibleCategorizer,
     OpenAICompatibleEmbeddingProvider,
     _retry_after_seconds,
+    fallback_issue_summary,
     render_prompt,
     valid_issue_summary,
 )
@@ -79,6 +80,79 @@ def test_classification_and_item_summary_share_one_model_call(config_dict):
     assert calls[0][0].count(enriched.source_text) == 1
     assert "Do not include DOI" in calls[0][0]
     assert result.source_label is None
+
+
+def test_grounded_issue_summary_fallback_meets_contract(config_dict):
+    profile = AppConfig.model_validate(config_dict).profiles["migraine"]
+    original = ResearchItem(
+        title="A grounded migraine treatment study",
+        url="https://example.org/paper",
+        snippet="A supplied source description.",
+        source_message_id="message-1",
+    )
+    enriched = EnrichedItem(
+        item=original,
+        canonical_url=original.url,
+        fingerprint="fingerprint",
+        source_text="Title: A grounded migraine treatment study",
+    )
+    from newsletter_agent.domain.models import ClassifiedItem
+
+    item = ClassifiedItem(
+        enriched=enriched,
+        category="Treatments",
+        headline="A grounded migraine treatment study",
+        brief="A supplied source description.",
+    )
+
+    summary = fallback_issue_summary([item], profile)
+
+    assert valid_issue_summary(summary)
+    assert "A grounded migraine treatment study" in summary
+
+
+def test_invalid_model_issue_summaries_use_local_fallback(config_dict):
+    profile = AppConfig.model_validate(config_dict).profiles["migraine"]
+    original = ResearchItem(
+        title="A grounded migraine treatment study",
+        url="https://example.org/paper",
+        snippet="A supplied source description.",
+        source_message_id="message-1",
+    )
+    enriched = EnrichedItem(
+        item=original,
+        canonical_url=original.url,
+        fingerprint="fingerprint",
+        source_text="Title: A grounded migraine treatment study",
+    )
+    from newsletter_agent.domain.models import ClassifiedItem
+
+    item = ClassifiedItem(
+        enriched=enriched,
+        category="Treatments",
+        headline="A grounded migraine treatment study",
+        brief="A supplied source description.",
+    )
+    categorizer = OpenAICompatibleCategorizer(
+        base_url="https://example.invalid/v1",
+        api_key="test",
+        model="test-model",
+    )
+    responses = iter(
+        [
+            {"summary": "Too short."},
+            {"summary": "Still too short."},
+        ]
+    )
+
+    async def completion(prompt, response_contract):
+        return next(responses)
+
+    categorizer._completion = completion
+    summary = asyncio.run(categorizer.summarize_issue([item], profile))
+
+    assert valid_issue_summary(summary)
+    assert "A grounded migraine treatment study" in summary
 
 
 def test_embedding_input_is_bounded_without_truncating_stored_source(monkeypatch):

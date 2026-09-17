@@ -48,6 +48,41 @@ def test_parses_google_scholar_url_redirect():
     assert items[0].url == "https://example.org/paper?id=9"
 
 
+def test_each_scholar_result_uses_only_its_own_authors_and_snippet():
+    """A shared alert container must never bleed one result into the next."""
+    html = """
+    <div style="width:100%;max-width:600px">
+      <h3><a class="gse_alrt_title" href="https://example.org/first">
+        High-level bioproduction of L-theanine
+      </a></h3>
+      <div>G. Zhao, S. Tian - Chemical Engineering Journal, 2026</div>
+      <div class="gse_alrt_sni">The engineered strain produced L-theanine without
+        exogenous ethylamine.</div>
+      <div><a href="https://scholar.google.com/save">Save</a></div>
+      <br>
+      <h3><a class="gse_alrt_title" href="https://example.org/second">
+        Best nootropics ranked by evidence
+      </a></h3>
+      <div>C. Sheridan</div>
+      <div class="gse_alrt_sni">A consumer article discusses supplements for focus.</div>
+      <div><a href="https://scholar.google.com/save">Save</a></div>
+      <br>
+      <h3></h3>
+    </div>
+    """
+
+    first, second = parse_scholar_alert(html=html, text="", message_id="gmail-shared")
+
+    assert first.authors == "G. Zhao, S. Tian - Chemical Engineering Journal, 2026"
+    assert first.snippet == (
+        "The engineered strain produced L-theanine without exogenous ethylamine."
+    )
+    assert "nootropics" not in first.snippet.casefold()
+    assert second.authors == "C. Sheridan"
+    assert second.snippet == "A consumer article discusses supplements for focus."
+    assert "L-theanine" not in second.snippet
+
+
 def test_unparseable_labeled_message_is_fatal():
     with pytest.raises(ScholarAlertParseError):
         parse_scholar_alert(html="<p>No results here</p>", text="", message_id="gmail-2")

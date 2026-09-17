@@ -85,6 +85,17 @@ profiles:
     topic: L-theanine
     gmail:
       label_name: l-theanine
+    content_policy:
+      enabled: true
+      low_priority_source_types:
+        - commercial_blog
+        - marketing_page
+        - seo_content
+      cluster_within_same_domain: true
+      title_similarity_threshold: 0.40
+      content_similarity_threshold: 0.78
+      max_items_per_cluster: 1
+      max_low_priority_items_per_domain: 1
     categories:
       - name: Cognition, Focus and Performance
         guidance: Cognition,Focus, Performance.
