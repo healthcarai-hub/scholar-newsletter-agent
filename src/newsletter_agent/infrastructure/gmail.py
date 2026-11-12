@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import os
 from datetime import timezone
 from email.message import EmailMessage
@@ -14,8 +15,11 @@ from newsletter_agent.infrastructure.scholar_parser import (
     extract_mime_bodies,
     gmail_internal_date,
     parse_scholar_alert,
+    ScholarAlertParseError,
 )
 
+
+logger = logging.getLogger(__name__)
 
 GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 
@@ -141,6 +145,7 @@ class GmailAdapter:
 
         messages: list[SourceMessage] = []
         items = []
+        skipped_ids: list[str] = []
         for message_ref in message_refs:
             raw = (
                 self.service.users()
@@ -156,11 +161,24 @@ class GmailAdapter:
             payload = raw.get("payload", {})
             headers = _headers(payload)
             html, text = extract_mime_bodies(payload)
-            parsed = parse_scholar_alert(
-                html=html,
-                text=text,
-                message_id=str(raw["id"]),
-            )
+            try:
+                parsed = parse_scholar_alert(
+                    html=html,
+                    text=text,
+                    message_id=str(raw["id"]),
+                )
+            except ScholarAlertParseError as exc:
+                # One unparseable email (e.g. a non-alert message carrying the label)
+                # must not discard the valid alerts around it. The message is left out
+                # of the batch; the adapter never modifies labels, so it stays in Gmail.
+                logger.warning(
+                    "gmail_message_skipped profile=%s message_id=%s reason=%s",
+                    profile.gmail.label_name,
+                    raw["id"],
+                    exc,
+                )
+                skipped_ids.append(str(raw["id"]))
+                continue
             messages.append(
                 SourceMessage(
                     message_id=str(raw["id"]),
@@ -170,6 +188,12 @@ class GmailAdapter:
                 )
             )
             items.extend(parsed)
+        if skipped_ids and not messages:
+            # Nothing usable at all: surface it rather than publishing an empty issue.
+            raise ScholarAlertParseError(
+                f"none of the {len(skipped_ids)} labeled Gmail message(s) in the run "
+                f"window contained recognizable Scholar results: {', '.join(skipped_ids)}"
+            )
         return AlertBatch(messages=tuple(messages), items=tuple(items), label_id=label_id)
 
     async def list_pending(self, context: RunContext, profile: ProfileConfig) -> AlertBatch:
